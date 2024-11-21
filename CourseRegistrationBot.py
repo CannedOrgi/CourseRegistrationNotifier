@@ -2,8 +2,8 @@ import requests
 import bs4
 import time
 import winsound
-token = '7632158464:AAGCd0REs-kDMnEXq2w0jEM-s1O2MvhPOdA'
-chat_id = '2109350821'
+token = '**********'
+chat_id = '*******'
 
 duration = 1500  #milliseconds
 freq = 440  
