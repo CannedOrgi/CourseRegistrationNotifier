@@ -2,7 +2,7 @@ import requests
 import bs4
 import time
 
-token = '7632158######A'
+token = '7632158464:AAGCd0REs-kDMn########jEM-s1O2MvhPOdA'
 base_url = f'https://api.telegram.org/bot{token}'
 update_url = f'{base_url}/getUpdates'
 
@@ -76,7 +76,6 @@ while True:
         chat_id = update["message"]["chat"]["id"]
         message_id = update["message"]["message_id"]
         text = update["message"].get("text", "").strip()
-        print(f"message_id = {message_id}")
         
         if chat_id not in user_states:
             user_states[chat_id] = {
@@ -90,6 +89,11 @@ while True:
             continue
 
         user_state = user_states[chat_id]
+        if text.lower() == 'yes' and user_state["state"]=='active':
+            send_message(chat_id, "Please enter the course(s) you want updates for (comma-separated).")
+            user_state["state"] = "awaiting_course"
+            user_state["last_message_id"] = message_id
+            continue
         print(user_state["state"])
 
         
@@ -100,7 +104,7 @@ while True:
             send_message(chat_id, "Thank you! Please enter the course(s) you want updates for (comma-separated).")
             continue
 
-        if message_id == user_state.get("last_message_id", 0) + 2 and user_state["state"] == "awaiting_course":
+        elif message_id == user_state.get("last_message_id", 0) + 2 and user_state["state"] == "awaiting_course":
             courses_requested = [course.strip() for course in text.split(",")]
             valid_courses = [course for course in courses_requested]
             user_state["courses"] = valid_courses
@@ -109,10 +113,16 @@ while True:
             user_state["last_message_id"] = message_id
 
             send_message(chat_id, f"You are now subscribed to updates for: {', '.join(valid_courses)}.")
+            continue
 
-        else:
+        elif message_id != user_state.get("last_message_id", 0) + 2 and user_state["state"] !="active":
+            print("Sorry, please enter it again.")
             user_state["last_message_id"] = message_id
-            send_message(chat_id, "I'm not sure what you're trying to do. Please wait for updates.")
+            continue
+
+        elif user_state["state"] =="active":
+            user_state["last_message_id"] = message_id
+            send_message(chat_id, "If you would like to change the list of courses you want updates for, please say 'yes'. Otherwise, please wait for updates.")
 
     print(f"user states: {user_states}")
 
