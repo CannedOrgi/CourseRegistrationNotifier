@@ -1,149 +1,149 @@
 import requests
 import bs4
 import time
-import winsound
-token = '**********'
-chat_id = '*******'
+import re
 
-duration = 1500  #milliseconds
-freq = 440  
+token = '7632158464:AAGCd0REs-kDMnEXq2w0jEM-s1O2MvhPOdA'
+base_url = f'https://api.telegram.org/bot{token}'
+update_url = f'{base_url}/getUpdates'
 
-def sendMessage(message):
-    url1 = f'https://api.telegram.org/bot{token}/sendMessage'
-    payload = {
-                    'chat_id': chat_id,
-                    'text': message
-                }
+user_states = {} 
+last_update_id = None  
+course_states = {} 
+fsm_index = 0
+courses_to_check = [] 
 
-    response = requests.post(url1, data=payload)
 
-url = "https://academic.iitg.ac.in//sso/gen/student1.jsp"
+def send_message(chat_id, text):
+    url = f'{base_url}/sendMessage'
+    payload = {'chat_id': chat_id, 'text': text}
+    requests.post(url, data=payload)
 
-r = requests.post(url, data={"cid": "EE 605", "sess": "Jan-May", "yr": "2025"})
-soup = bs4.BeautifulSoup(r.text, "html.parser")
-embedded = []
+def fetch_updates():
+    global last_update_id
+    params = {'offset': last_update_id + 1} if last_update_id else {}
+    response = requests.get(update_url, params=params)
+    return response.json().get('result', [])
 
-tr = soup.findAll('tr')
-for t in tr[1:]:
-    trr = t.findAll('td')
-    name = trr[1].contents[0]
-    test = trr[2].contents[0]
-    embedded.append(name + ", " + test)
-print("EE 605 full") if len(embedded)==120 else print(f"EE 605 has {120-len(embedded)} spot left!")
+def check_course_updates():
+    global fsm_index, courses_to_check, course_states
 
-r = requests.post(url, data={"cid": "EE 621", "sess": "Jan-May", "yr": "2025"})
-soup = bs4.BeautifulSoup(r.text, "html.parser")
-formal = []
-tr = soup.findAll('tr')
-for t in tr[1:]:
-    trr = t.findAll('td')
-    name = trr[1].contents[0]
-    test = trr[2].contents[0]
-    formal.append(name + ", " + test)
+    if not courses_to_check:
+        return
 
-print("EE 621 full") if len(formal)==105 else print(f"EE 621 has {105-len(formal)} spot left!")
+    course_id = courses_to_check[fsm_index]
 
-r = requests.post(url, data={"cid": "EE 659", "sess": "Jan-May", "yr": "2025"})
-soup = bs4.BeautifulSoup(r.text, "html.parser")
-iot = []
+ 
+    url = "https://academic.iitg.ac.in/sso/gen/student1.jsp"
+    response = requests.post(url, data={"cid": course_id, "sess": "Jan-May", "yr": "2025"})
+    soup = bs4.BeautifulSoup(response.text, "html.parser")
 
-tr = soup.findAll('tr')
-for t in tr[1:]:
-    trr = t.findAll('td')
-    name = trr[1].contents[0]
-    test = trr[2].contents[0]
-    iot.append(name + ", " + test)
-print("EE 659 full") if len(iot)==80 else print(f"EE 659 has {80-len(iot)} spot left!")
-fsm = 1
+    current_students = []
+    for tr in soup.find_all('tr')[1:]:
+        tds = tr.find_all('td')
+        name = tds[1].text.strip()
+        test = tds[2].text.strip()
+        student_info = f"{name}, {test}"
+        current_students.append(student_info)
 
+   
+    previous_students = course_states.get(course_id, [])
+    if previous_students:
+        print('yesss')
+    elif not previous_students:
+        print("NOO")
+    added_students = [s for s in current_students if s not in previous_students]
+    removed_students = [s for s in previous_students if s not in current_students]
+
+    if previous_students:
+        for user_state in user_states.values():
+            if user_state['state'] == 'active' and course_id in user_state['courses']:
+                chat_id = user_state['chat_id']
+                for student in added_students:
+                    send_message(chat_id, f"{student} registered for {course_id}!")
+                for student in removed_students:
+                    send_message(chat_id, f"{student} de-registered from {course_id}!")
+
+    course_states[course_id] = current_students
+
+    fsm_index = (fsm_index + 1) % len(courses_to_check)
 while True:
-    if fsm == 1:
-        r = requests.post(url, data={"cid": "EE 605", "sess": "Jan-May", "yr": "2025"})
-        soup = bs4.BeautifulSoup(r.text, "html.parser")
+    updates = fetch_updates()
+    for update in updates:
+        print("UPDATE:", update)
+        last_update_id = update["update_id"]
+        if "message" not in update:
+            continue
 
-        embedded1 = []
+        chat_id = update["message"]["chat"]["id"]
+        name = update["message"]["chat"]["first_name"]
+        message_id = update["message"]["message_id"]
+        text = update["message"].get("text", "").strip()
+        
+        if chat_id not in user_states:
+            user_states[chat_id] = {
+                "chat_id": chat_id,
+                "state": "awaiting_roll",
+                "roll": None,
+                "courses": [],
+                "last_message_id": message_id
+            }
+            send_message(chat_id, f"Hello {name}, please enter your roll number.")
+            continue
 
-        tr = soup.findAll('tr')
-        for t in tr[1:]:
-            trr = t.findAll('td')
-            name = trr[1].contents[0]
-            test = trr[2].contents[0]
-            last = name + ", " + test
-            embedded1.append(last)
-            if last not in embedded:
-                message1 = last + " registered for EE 605!!!"
-                print(last + " registered for EE 605!!!")
-                sendMessage(message1)
+        user_state = user_states[chat_id]
+        if text.lower() == 'yes' and user_state["state"]=='active':
+            send_message(chat_id, "Please enter the course(s) you want updates for (comma-separated).")
+            user_state["state"] = "awaiting_course"
+            user_state["last_message_id"] = message_id
+            continue
+        print(user_state["state"])
 
-            
-                #winsound.Beep(freq, duration)
-            else:
-                embedded.remove(last)
+        
+        if text and user_state["state"] == "awaiting_roll":
+            user_state["roll"] = text
+            user_state["state"] = "awaiting_course"
+            user_state["last_message_id"] = message_id
+            send_message(chat_id, "Now please enter the course(s) you want updates for (comma-separated).")
+            continue
 
-        for _ in embedded:
-            message2 = _ + " de-registered for EE 605!!!"
-            print(message2)
-            sendMessage(message2)
-            winsound.Beep(freq, duration)
+        elif text and user_state["state"] == "awaiting_course":
+            courses_requested = [course.strip() for course in text.split(",")]
+            def normalize_course(course):
+                match = re.match(r"([a-zA-Z]+)\s*(\d+)", course)
+                if match:
+                    prefix = match.group(1).upper()
+                    number = match.group(2)
+                    return f"{prefix} {number}"
+                return course
 
-        embedded = embedded1
-        fsm = 2
+            valid_courses = [normalize_course(course) for course in courses_requested]
+            user_state["courses"] = valid_courses
+            print(user_state["courses"])
+            user_state["state"] = "active"
+            user_state["last_message_id"] = message_id
 
-    elif fsm == 2:
-        r = requests.post(url, data={"cid": "EE 621", "sess": "Jan-May", "yr": "2025"})
-        soup = bs4.BeautifulSoup(r.text, "html.parser")
+            send_message(chat_id, f"You are now subscribed to updates for: {', '.join(valid_courses)}.")
+            continue
 
-        formal1 = []
+        elif not text and user_state["state"] !="active":
+            send_message(chat_id, "Sorry, please enter it again")
+            user_state["last_message_id"] = message_id
+            continue
 
-        tr = soup.findAll('tr')
-        for t in tr[1:]:
-            trr = t.findAll('td')
-            name = trr[1].contents[0]
-            test = trr[2].contents[0]
-            last = name + ", " + test
-            formal1.append(last)
-            if last not in formal:
-                message3 = last + " registered for EE 621!!!"
-                print(message3)
-                sendMessage(message3)
-                winsound.Beep(freq, duration)
-            else:
-                formal.remove(last)
+        elif user_state["state"] =="active":
+            user_state["last_message_id"] = message_id
+            send_message(chat_id, "If you would like to change the list of courses you want updates for, please say 'yes'. Otherwise, please wait for updates.")
 
-        for _ in formal:
-            print(_ + " de-registered for EE 621!!!")
-            sendMessage(_ + " de-registered for EE 621!!!")
-            winsound.Beep(freq, duration)
+    print(f"user states: {user_states}")
 
-        formal = formal1
-        fsm = 3
+    courses_to_check_set = set()
+    for user_state in user_states.values():
+        if user_state.get('state') == 'active':
+            courses_to_check_set.update(user_state["courses"])
+    courses_to_check = list(courses_to_check_set)
 
-    else:
-        r = requests.post(url, data={"cid": "EE 659", "sess": "Jan-May", "yr": "2025"})
-        soup = bs4.BeautifulSoup(r.text, "html.parser")
+    if courses_to_check:
+        check_course_updates()
 
-        iot1 = []
-
-        tr = soup.findAll('tr')
-        for t in tr[1:]:
-            trr = t.findAll('td')
-            name = trr[1].contents[0]
-            test = trr[2].contents[0]
-            last = name + ", " + test
-            iot1.append(last)
-            if last not in iot:
-                print(last + " registered for EE 659!!!")
-                sendMessage(last + " registered for EE 659!!!")
-                winsound.Beep(freq, duration)
-            else:
-                iot.remove(last)
-
-        for _ in iot:
-            print(_ + " de-registered for EE 659!!!")
-            sendMessage(_ + " de-registered for EE 659!!!")
-            winsound.Beep(freq, duration)
-
-        iot = iot1
-        fsm = 1
-
-    time.sleep(1)
+    time.sleep(1) 
