@@ -28,12 +28,19 @@ def fetch_updates():
 def check_course_updates():
     global fsm_index, courses_to_check, course_states
 
+    # Safeguard: Skip if courses_to_check is empty
     if not courses_to_check:
+        print("No courses to check.")
         return
 
+    # Adjust fsm_index if it is out of bounds
+    if fsm_index >= len(courses_to_check):
+        fsm_index = 0  # Reset to the start of the list
+
+    # Safely get the current course ID
     course_id = courses_to_check[fsm_index]
 
- 
+    # Fetch course updates from the website
     url = "https://academic.iitg.ac.in/sso/gen/student1.jsp"
     response = requests.post(url, data={"cid": course_id, "sess": "Jan-May", "yr": "2025"})
     soup = bs4.BeautifulSoup(response.text, "html.parser")
@@ -46,15 +53,12 @@ def check_course_updates():
         student_info = f"{name}, {test}"
         current_students.append(student_info)
 
-   
+    # Compare with previous state
     previous_students = course_states.get(course_id, [])
-    if previous_students:
-        print('yesss')
-    elif not previous_students:
-        print("NOO")
     added_students = [s for s in current_students if s not in previous_students]
     removed_students = [s for s in previous_students if s not in current_students]
 
+    # Notify users about updates
     if previous_students:
         for user_state in user_states.values():
             if user_state['state'] == 'active' and course_id in user_state['courses']:
@@ -64,9 +68,13 @@ def check_course_updates():
                 for student in removed_students:
                     send_message(chat_id, f"{student} de-registered from {course_id}!")
 
+    # Update the state
     course_states[course_id] = current_students
 
-    fsm_index = (fsm_index + 1) % len(courses_to_check)
+    # Safely update FSM index for the next course
+    if courses_to_check:
+        fsm_index = (fsm_index + 1) % len(courses_to_check)
+
 while True:
     updates = fetch_updates()
     for update in updates:
